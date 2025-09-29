@@ -4,6 +4,8 @@ import BreathingGuide from '@/components/BreathingGuide';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft } from 'lucide-react';
 import { type Preset } from '@/components/MeditationPreset';
+import { useTimer } from '@/hooks/useTimer';
+import { sessionManager } from '@/lib/sessionManager';
 
 interface TimerProps {
   selectedPreset: Preset | null;
@@ -11,68 +13,61 @@ interface TimerProps {
 }
 
 export default function Timer({ selectedPreset, onBackToPresets }: TimerProps) {
-  const [isActive, setIsActive] = useState(false);
-  const [isPaused, setIsPaused] = useState(false);
-  const [timeRemaining, setTimeRemaining] = useState(0);
   const [showInterface, setShowInterface] = useState(true);
-  const [sessionComplete, setSessionComplete] = useState(false);
+  const [sessionId, setSessionId] = useState<string | null>(null);
 
   const duration = selectedPreset ? selectedPreset.duration * 60 : 600; // Convert minutes to seconds
 
-  useEffect(() => {
-    setTimeRemaining(duration);
-    setSessionComplete(false);
-  }, [duration, selectedPreset]);
-
-  useEffect(() => {
-    let interval: NodeJS.Timeout;
-    
-    if (isActive && !isPaused && timeRemaining > 0) {
-      interval = setInterval(() => {
-        setTimeRemaining(prev => {
-          if (prev <= 1) {
-            setIsActive(false);
-            setSessionComplete(true);
-            console.log('Session completed!');
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
+  const timer = useTimer({
+    duration,
+    onComplete: () => {
+      console.log('Session completed!');
+      if (sessionId && selectedPreset) {
+        const completionPercentage = 100;
+        sessionManager.completeSession(sessionId, completionPercentage);
+      }
+    },
+    onTick: (timeRemaining) => {
+      // Optional: Log progress or update UI
     }
-
-    return () => clearInterval(interval);
-  }, [isActive, isPaused, timeRemaining]);
+  });
 
   useEffect(() => {
-    if (isActive && !isPaused) {
-      const timer = setTimeout(() => {
+    if (timer.isActive && !timer.isPaused) {
+      const fadeTimer = setTimeout(() => {
         setShowInterface(false);
       }, 5000); // Hide interface after 5 seconds
       
-      return () => clearTimeout(timer);
+      return () => clearTimeout(fadeTimer);
     }
-  }, [isActive, isPaused]);
+  }, [timer.isActive, timer.isPaused]);
 
   const handleStart = () => {
-    setIsActive(true);
-    setIsPaused(false);
-    setSessionComplete(false);
+    if (selectedPreset && !sessionId) {
+      const newSessionId = sessionManager.startSession(selectedPreset);
+      setSessionId(newSessionId);
+    }
+    timer.start();
     console.log('Timer started for:', selectedPreset?.name);
   };
 
   const handlePause = () => {
-    setIsPaused(true);
+    timer.pause();
     setShowInterface(true);
     console.log('Timer paused');
   };
 
   const handleStop = () => {
-    setIsActive(false);
-    setIsPaused(false);
-    setTimeRemaining(duration);
+    timer.stop();
     setShowInterface(true);
-    setSessionComplete(false);
+    
+    // Save partial session if there was progress
+    if (sessionId && selectedPreset && timer.progress > 0) {
+      const completionPercentage = Math.round(timer.progress);
+      sessionManager.completeSession(sessionId, completionPercentage);
+    }
+    
+    setSessionId(null);
     console.log('Timer stopped');
   };
 
@@ -94,7 +89,7 @@ export default function Timer({ selectedPreset, onBackToPresets }: TimerProps) {
     );
   }
 
-  if (sessionComplete) {
+  if (timer.isComplete) {
     return (
       <div className="flex items-center justify-center min-h-screen p-8">
         <div className="text-center max-w-md">
@@ -109,7 +104,10 @@ export default function Timer({ selectedPreset, onBackToPresets }: TimerProps) {
           
           <div className="flex gap-4 justify-center">
             <Button 
-              onClick={handleStop}
+              onClick={() => {
+                timer.reset();
+                setSessionId(null);
+              }}
               data-testid="button-restart-session"
             >
               Practice Again
@@ -133,7 +131,7 @@ export default function Timer({ selectedPreset, onBackToPresets }: TimerProps) {
     <div className="min-h-screen relative">
       {/* Back button */}
       <div className={`absolute top-4 left-4 z-10 transition-opacity duration-500 ${
-        isActive && !isPaused && !showInterface ? 'opacity-0' : 'opacity-100'
+        timer.isActive && !timer.isPaused && !showInterface ? 'opacity-0' : 'opacity-100'
       }`}>
         <Button
           variant="ghost"
@@ -149,7 +147,7 @@ export default function Timer({ selectedPreset, onBackToPresets }: TimerProps) {
 
       {/* Session title */}
       <div className={`absolute top-4 right-4 z-10 transition-opacity duration-500 ${
-        isActive && !isPaused && !showInterface ? 'opacity-0' : 'opacity-100'
+        timer.isActive && !timer.isPaused && !showInterface ? 'opacity-0' : 'opacity-100'
       }`}>
         <div className="text-right">
           <div className="text-sm font-medium text-foreground">{selectedPreset.name}</div>
@@ -162,20 +160,20 @@ export default function Timer({ selectedPreset, onBackToPresets }: TimerProps) {
         <div className="flex flex-col items-center justify-center min-h-screen">
           <BreathingGuide
             pattern={selectedPreset.technique as 'box' | '4-7-8' | 'equal'}
-            isActive={isActive && !isPaused}
+            isActive={timer.isActive && !timer.isPaused}
             onCycleComplete={handleCycleComplete}
           />
           
           {/* Timer controls for breathing exercises */}
           <div className={`mt-8 flex gap-4 transition-opacity duration-500 ${
-            isActive && !isPaused && !showInterface ? 'opacity-0' : 'opacity-100'
+            timer.isActive && !timer.isPaused && !showInterface ? 'opacity-0' : 'opacity-100'
           }`}>
-            {!isActive || isPaused ? (
+            {!timer.isActive || timer.isPaused ? (
               <Button
                 onClick={handleStart}
                 data-testid="button-start-breathing"
               >
-                {isPaused ? 'Resume' : 'Start'} Practice
+                {timer.isPaused ? 'Resume' : 'Start'} Practice
               </Button>
             ) : (
               <Button
@@ -187,7 +185,7 @@ export default function Timer({ selectedPreset, onBackToPresets }: TimerProps) {
               </Button>
             )}
             
-            {(isActive || isPaused) && (
+            {(timer.isActive || timer.isPaused) && (
               <Button
                 variant="outline"
                 onClick={handleStop}
@@ -200,19 +198,19 @@ export default function Timer({ selectedPreset, onBackToPresets }: TimerProps) {
           
           {/* Time remaining for breathing exercises */}
           <div className={`mt-4 text-center transition-opacity duration-500 ${
-            isActive && !isPaused && !showInterface ? 'opacity-0' : 'opacity-100'
+            timer.isActive && !timer.isPaused && !showInterface ? 'opacity-0' : 'opacity-100'
           }`}>
             <div className="text-sm text-muted-foreground">
-              {Math.floor(timeRemaining / 60)}:{(timeRemaining % 60).toString().padStart(2, '0')} remaining
+              {Math.floor(timer.timeRemaining / 60)}:{(timer.timeRemaining % 60).toString().padStart(2, '0')} remaining
             </div>
           </div>
         </div>
       ) : (
         <TimerDisplay
           duration={duration}
-          isActive={isActive}
-          isPaused={isPaused}
-          timeRemaining={timeRemaining}
+          isActive={timer.isActive}
+          isPaused={timer.isPaused}
+          timeRemaining={timer.timeRemaining}
           onStart={handleStart}
           onPause={handlePause}
           onStop={handleStop}
@@ -221,7 +219,7 @@ export default function Timer({ selectedPreset, onBackToPresets }: TimerProps) {
       )}
       
       {/* Click to show interface during active session */}
-      {isActive && !isPaused && !showInterface && (
+      {timer.isActive && !timer.isPaused && !showInterface && (
         <div 
           className="absolute inset-0 cursor-pointer" 
           onClick={() => {

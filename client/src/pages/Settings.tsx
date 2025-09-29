@@ -1,35 +1,22 @@
 import { useState, useEffect } from 'react';
 import SettingsPanel, { type MeditationSettings } from '@/components/SettingsPanel';
+import { sessionManager } from '@/lib/sessionManager';
 
 export default function Settings() {
-  const [settings, setSettings] = useState<MeditationSettings>({
-    intervalBells: false,
-    intervalDuration: 5,
-    soundEnabled: true,
-    bellSound: 'tibetan',
-    volume: 50,
-    visualCues: true,
-    autoFadeInterface: true,
-    fadeDuration: 10
-  });
+  const [settings, setSettings] = useState<MeditationSettings>(
+    sessionManager.getSettings()
+  );
 
-  // Load settings from localStorage on mount
+  // Load settings from session manager on mount
   useEffect(() => {
-    const savedSettings = localStorage.getItem('meditationSettings');
-    if (savedSettings) {
-      try {
-        const parsed = JSON.parse(savedSettings);
-        setSettings(parsed);
-        console.log('Loaded settings from localStorage');
-      } catch (error) {
-        console.error('Failed to parse saved settings:', error);
-      }
-    }
+    const savedSettings = sessionManager.getSettings();
+    setSettings(savedSettings);
+    console.log('Loaded settings from session manager');
   }, []);
 
   const handleSettingsChange = (newSettings: MeditationSettings) => {
     setSettings(newSettings);
-    localStorage.setItem('meditationSettings', JSON.stringify(newSettings));
+    sessionManager.saveSettings(newSettings);
     console.log('Settings updated and saved:', newSettings);
   };
 
