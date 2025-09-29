@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react';
+import { audioManager } from '@/lib/audioManager';
+import { sessionManager } from '@/lib/sessionManager';
 
 interface BreathingGuideProps {
   pattern: 'box' | '4-7-8' | 'equal';
@@ -37,11 +39,38 @@ export default function BreathingGuide({ pattern, isActive, onCycleComplete }: B
   const [currentPhase, setCurrentPhase] = useState(0);
   const [progress, setProgress] = useState(0);
   const [cycleCount, setCycleCount] = useState(0);
+  const [audioSettings, setAudioSettings] = useState({
+    soundEnabled: true,
+    bellSound: 'tibetan' as const,
+    volume: 50,
+    intervalBells: false,
+    intervalDuration: 5
+  });
 
   const currentPattern = patterns[pattern];
   const phase = currentPattern.phases[currentPhase];
   const isInhale = phase.name === 'Inhale';
   const isExhale = phase.name === 'Exhale';
+
+  // Load audio settings and refresh them for reactivity
+  useEffect(() => {
+    const loadSettings = async () => {
+      const settings = await sessionManager.getSettings();
+      setAudioSettings({
+        soundEnabled: settings.soundEnabled,
+        bellSound: settings.bellSound as any,
+        volume: settings.volume,
+        intervalBells: settings.intervalBells,
+        intervalDuration: settings.intervalDuration
+      });
+    };
+    
+    loadSettings();
+    
+    // Refresh settings periodically during active session
+    const interval = setInterval(loadSettings, 2000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     if (!isActive) {
@@ -58,6 +87,17 @@ export default function BreathingGuide({ pattern, isActive, onCycleComplete }: B
         
         if (newProgress >= 100) {
           const nextPhase = (currentPhase + 1) % currentPattern.phases.length;
+          
+          // Play breathing cue audio when transitioning to new phase
+          const nextPhaseName = currentPattern.phases[nextPhase].name;
+          if (nextPhaseName === 'Inhale') {
+            audioManager.playBreathingCue(audioSettings, 'inhale', 0.3);
+          } else if (nextPhaseName === 'Exhale') {
+            audioManager.playBreathingCue(audioSettings, 'exhale', 0.3);
+          } else if (nextPhaseName === 'Hold') {
+            audioManager.playBreathingCue(audioSettings, 'hold', 0.2);
+          }
+          
           setCurrentPhase(nextPhase);
           
           if (nextPhase === 0) {

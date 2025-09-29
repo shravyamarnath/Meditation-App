@@ -5,7 +5,8 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
-import { Bell, Volume2, Eye, Timer } from 'lucide-react';
+import { Bell, Volume2, Eye, Timer, Play } from 'lucide-react';
+import { audioManager } from '@/lib/audioManager';
 
 export interface MeditationSettings {
   intervalBells: boolean;
@@ -24,12 +25,31 @@ interface SettingsPanelProps {
 }
 
 export default function SettingsPanel({ settings, onSettingsChange }: SettingsPanelProps) {
+  const [isTestingAudio, setIsTestingAudio] = useState(false);
+  
   const updateSetting = <K extends keyof MeditationSettings>(
     key: K,
     value: MeditationSettings[K]
   ) => {
     onSettingsChange({ ...settings, [key]: value });
     console.log(`Setting ${key} changed to:`, value);
+  };
+
+  const testAudio = async () => {
+    setIsTestingAudio(true);
+    try {
+      await audioManager.testAudio({
+        soundEnabled: settings.soundEnabled,
+        bellSound: settings.bellSound,
+        volume: settings.volume,
+        intervalBells: settings.intervalBells,
+        intervalDuration: settings.intervalDuration
+      });
+    } catch (error) {
+      console.error('Audio test failed:', error);
+    } finally {
+      setIsTestingAudio(false);
+    }
   };
 
   return (
@@ -83,14 +103,29 @@ export default function SettingsPanel({ settings, onSettingsChange }: SettingsPa
                   <Slider
                     value={[settings.volume]}
                     onValueChange={([value]) => updateSetting('volume', value)}
+                    onValueCommit={([value]) => updateSetting('volume', value)}
+                    min={0}
                     max={100}
-                    step={5}
+                    step={1}
                     className="flex-1"
                     data-testid="slider-volume"
                   />
                   <span className="text-sm text-muted-foreground w-12">
                     {settings.volume}%
                   </span>
+                </div>
+                <div className="pt-2">
+                  <Button
+                    onClick={testAudio}
+                    disabled={!settings.soundEnabled || isTestingAudio}
+                    variant="outline"
+                    size="sm"
+                    className="flex items-center gap-2"
+                    data-testid="button-test-audio"
+                  >
+                    <Play className="h-4 w-4" />
+                    {isTestingAudio ? 'Testing...' : 'Test Sound'}
+                  </Button>
                 </div>
               </div>
             </>

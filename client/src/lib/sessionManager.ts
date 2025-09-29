@@ -56,11 +56,8 @@ class SessionManager {
         completedAt: null
       };
 
-      const session = await apiRequest<Session>('/api/sessions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(sessionData)
-      });
+      const response = await apiRequest('POST', '/api/sessions', sessionData);
+      const session = await response.json() as Session;
 
       this.activeSessionId = session.id;
       console.log('Started session:', session.id, preset.name);
@@ -85,15 +82,11 @@ class SessionManager {
       const session = await this.getSession(sessionId);
       const completedDuration = session ? Math.round((session.duration * completionPercentage) / 100) : 0;
 
-      await apiRequest(`/api/sessions/${sessionId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          completedDuration,
-          completionPercentage,
-          isCompleted: completionPercentage >= 90,
-          completedAt: new Date().toISOString()
-        })
+      await apiRequest('PATCH', `/api/sessions/${sessionId}`, {
+        completedDuration,
+        completionPercentage,
+        isCompleted: completionPercentage >= 90,
+        completedAt: new Date().toISOString()
       });
 
       this.activeSessionId = null;
@@ -106,7 +99,8 @@ class SessionManager {
 
   async getSession(sessionId: string): Promise<Session | null> {
     try {
-      return await apiRequest<Session>(`/api/sessions/${sessionId}`);
+      const response = await apiRequest('GET', `/api/sessions/${sessionId}`);
+      return await response.json() as Session;
     } catch (error) {
       console.error('Failed to fetch session:', error);
       return null;
@@ -118,7 +112,8 @@ class SessionManager {
     try {
       const effectiveUserId = this.getEffectiveUserId();
       const params = effectiveUserId ? `?userId=${effectiveUserId}` : '';
-      return await apiRequest<Session[]>(`/api/sessions${params}`);
+      const response = await apiRequest('GET', `/api/sessions${params}`);
+      return await response.json() as Session[];
     } catch (error) {
       console.error('Failed to fetch sessions:', error);
       return [];
@@ -135,7 +130,8 @@ class SessionManager {
     try {
       const effectiveUserId = this.getEffectiveUserId();
       const params = effectiveUserId ? `?userId=${effectiveUserId}` : '';
-      return await apiRequest<SessionStats>(`/api/stats${params}`);
+      const response = await apiRequest('GET', `/api/stats${params}`);
+      return await response.json() as SessionStats;
     } catch (error) {
       console.error('Failed to fetch session stats:', error);
       return {
@@ -160,11 +156,7 @@ class SessionManager {
 
       const effectiveUserId = this.getEffectiveUserId();
       const params = effectiveUserId ? `?userId=${effectiveUserId}` : '';
-      await apiRequest(`/api/settings${params}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(settingsData)
-      });
+      await apiRequest('PATCH', `/api/settings${params}`, settingsData);
 
       console.log('Settings saved');
     } catch (error) {
@@ -178,7 +170,8 @@ class SessionManager {
     try {
       const effectiveUserId = this.getEffectiveUserId();
       const params = effectiveUserId ? `?userId=${effectiveUserId}` : '';
-      const settings = await apiRequest<UserSettings>(`/api/settings${params}`);
+      const response = await apiRequest('GET', `/api/settings${params}`);
+      const settings = await response.json() as UserSettings;
       
       if (settings) {
         return {
@@ -241,7 +234,7 @@ class SessionManager {
     try {
       const sessions = await this.getAllSessions();
       for (const session of sessions) {
-        await apiRequest(`/api/sessions/${session.id}`, { method: 'DELETE' });
+        await apiRequest('DELETE', `/api/sessions/${session.id}`);
       }
       localStorage.removeItem('meditation_settings_fallback');
       this.activeSessionId = null;

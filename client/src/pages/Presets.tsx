@@ -27,7 +27,7 @@ export default function Presets({ selectedPreset, onSelectPreset, onStartSession
       <div className="max-w-6xl mx-auto">
         {/* Header */}
         <div className="text-center mb-12">
-          <h1 className="text-4xl font-thin text-foreground mb-4">Choose Your Practice</h1>
+          <h1 className="text-4xl font-thin text-foreground mb-4">Choose Your Practice Today</h1>
           <p className="text-muted-foreground text-lg">Select a meditation or breathing technique to begin your journey</p>
         </div>
 

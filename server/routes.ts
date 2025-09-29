@@ -76,21 +76,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { userId } = req.query;
       const settings = await storage.getUserSettings(userId as string);
+      if (!settings) {
+        // Return default settings if user settings don't exist
+        const defaultSettings = {
+          userId: userId as string,
+          intervalBells: false,
+          intervalDuration: 5,
+          soundEnabled: true,
+          bellSound: 'tibetan' as const,
+          volume: 50,
+          visualCues: true,
+          autoFadeInterface: true,
+          fadeDuration: 10
+        };
+        return res.json(defaultSettings);
+      }
       res.json(settings);
     } catch (error) {
       console.error('Error fetching settings:', error);
       res.status(500).json({ error: 'Failed to fetch settings' });
-    }
-  });
-
-  app.post("/api/settings", async (req, res) => {
-    try {
-      const validatedData = insertUserSettingsSchema.parse(req.body);
-      const settings = await storage.createUserSettings(validatedData);
-      res.json(settings);
-    } catch (error) {
-      console.error('Error creating settings:', error);
-      res.status(400).json({ error: 'Invalid settings data' });
     }
   });
 

@@ -6,6 +6,7 @@ import { ArrowLeft } from 'lucide-react';
 import { type Preset } from '@/components/MeditationPreset';
 import { useTimer } from '@/hooks/useTimer';
 import { sessionManager } from '@/lib/sessionManager';
+import { audioManager } from '@/lib/audioManager';
 
 interface TimerProps {
   selectedPreset: Preset | null;
@@ -15,20 +16,66 @@ interface TimerProps {
 export default function Timer({ selectedPreset, onBackToPresets }: TimerProps) {
   const [showInterface, setShowInterface] = useState(true);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [lastIntervalAt, setLastIntervalAt] = useState<number>(-1);
+  const [settings, setSettings] = useState({
+    soundEnabled: true,
+    bellSound: 'tibetan' as const,
+    volume: 50,
+    intervalBells: false,
+    intervalDuration: 5
+  });
 
   const duration = selectedPreset ? selectedPreset.duration * 60 : 600; // Convert minutes to seconds
+
+  // Load audio settings
+  useEffect(() => {
+    const loadSettings = async () => {
+      const userSettings = await sessionManager.getSettings();
+      setSettings({
+        soundEnabled: userSettings.soundEnabled,
+        bellSound: userSettings.bellSound as any,
+        volume: userSettings.volume,
+        intervalBells: userSettings.intervalBells,
+        intervalDuration: userSettings.intervalDuration
+      });
+    };
+    
+    loadSettings();
+    
+    // Refresh settings periodically during active session for reactivity
+    const interval = setInterval(loadSettings, 2000);
+    return () => clearInterval(interval);
+  }, []);
 
   const timer = useTimer({
     duration,
     onComplete: async () => {
       console.log('Session completed!');
+      
+      // Play session completion bell
+      await audioManager.playSessionEndBell(settings);
+      
       if (sessionId && selectedPreset) {
         const completionPercentage = 100;
         await sessionManager.completeSession(sessionId, completionPercentage);
       }
     },
     onTick: (timeRemaining) => {
-      // Optional: Log progress or update UI
+      // Check for interval bells with more reliable timing
+      if (settings.intervalBells && settings.intervalDuration > 0) {
+        const intervalSeconds = settings.intervalDuration * 60;
+        const elapsedSeconds = duration - timeRemaining;
+        const currentInterval = Math.floor(elapsedSeconds / intervalSeconds);
+        
+        // Play interval bell only once per interval (avoiding duplicates)
+        if (elapsedSeconds > 10 && 
+            elapsedSeconds < duration - 10 && 
+            currentInterval > 0 &&
+            currentInterval !== lastIntervalAt) {
+          setLastIntervalAt(currentInterval);
+          audioManager.playIntervalBell(settings);
+        }
+      }
     }
   });
 
@@ -47,6 +94,10 @@ export default function Timer({ selectedPreset, onBackToPresets }: TimerProps) {
       const newSessionId = await sessionManager.startSession(selectedPreset);
       setSessionId(newSessionId);
     }
+    
+    // Play session start bell
+    await audioManager.playSessionStartBell(settings);
+    
     timer.start();
     console.log('Timer started for:', selectedPreset?.name);
   };
