@@ -73,3 +73,7 @@ Preferred communication style: Simple, everyday language.
 - **ESBuild**: Fast bundling for production builds
 - **PostCSS & Autoprefixer**: CSS processing and vendor prefixes
 - **Replit Plugins**: Development banner and error overlay for Replit environment
+
+## Git Integration Notes
+- User dismissed Replit GitHub connector integration (connector:ccfg_github_01K4B9XD3VRVD2F99YM91YTCAF)
+- Alternative GitHub setup methods available if needed for future code versioning
