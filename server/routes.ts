@@ -51,7 +51,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(updatedSession);
     } catch (error) {
       console.error('Error updating session:', error);
-      if (error.name === 'ZodError') {
+      if (error instanceof Error && error.name === 'ZodError') {
         return res.status(400).json({ error: 'Invalid update data' });
       }
       res.status(500).json({ error: 'Failed to update session' });

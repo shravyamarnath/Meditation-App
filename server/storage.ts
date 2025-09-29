@@ -69,6 +69,7 @@ export class MemStorage implements IStorage {
       id,
       userId: insertSession.userId || null,
       technique: insertSession.technique || null,
+      isCompleted: insertSession.isCompleted || false,
       startedAt: new Date(),
       completedAt: insertSession.isCompleted ? new Date() : null
     };
@@ -113,9 +114,16 @@ export class MemStorage implements IStorage {
   async createUserSettings(insertSettings: InsertUserSettings): Promise<UserSettings> {
     const id = randomUUID();
     const settings: UserSettings = {
-      ...insertSettings,
       id,
       userId: insertSettings.userId || null,
+      intervalBells: insertSettings.intervalBells || false,
+      intervalDuration: insertSettings.intervalDuration || 5,
+      soundEnabled: insertSettings.soundEnabled !== undefined ? insertSettings.soundEnabled : true,
+      bellSound: insertSettings.bellSound || 'tibetan',
+      volume: insertSettings.volume || 50,
+      visualCues: insertSettings.visualCues !== undefined ? insertSettings.visualCues : true,
+      autoFadeInterface: insertSettings.autoFadeInterface !== undefined ? insertSettings.autoFadeInterface : true,
+      fadeDuration: insertSettings.fadeDuration || 10,
       updatedAt: new Date()
     };
     this.userSettings.set(id, settings);
