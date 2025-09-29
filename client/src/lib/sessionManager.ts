@@ -1,119 +1,143 @@
 import { type Preset } from '@/components/MeditationPreset';
-import { type MeditationSettings } from '@/components/SettingsPanel';
+import type { Session, UserSettings, SessionStats, InsertSession, InsertUserSettings } from '@shared/schema';
+import { apiRequest } from '@/lib/queryClient';
 
-export interface MeditationSession {
-  id: string;
-  presetId: string;
-  presetName: string;
-  presetType: 'breathing' | 'meditation';
-  duration: number; // in minutes
-  completedAt: Date;
-  completionPercentage: number; // 0-100
-  wasCompleted: boolean;
+export interface MeditationSession extends Session {}
+
+export interface MeditationSettings {
+  intervalBells: boolean;
+  intervalDuration: number;
+  soundEnabled: boolean;
+  bellSound: string;
+  volume: number;
+  visualCues: boolean;
+  autoFadeInterface: boolean;
+  fadeDuration: number;
 }
 
-export interface SessionStats {
-  totalSessions: number;
-  totalMinutes: number;
-  currentStreak: number;
-  longestStreak: number;
-  thisWeek: number;
-  favoriteType: string;
-  lastSession: string;
-}
+export { type SessionStats };
 
 class SessionManager {
-  private readonly SESSIONS_KEY = 'meditation_sessions';
-  private readonly SETTINGS_KEY = 'meditation_settings';
-  private readonly LAST_SESSION_DATE_KEY = 'last_session_date';
+  private currentUserId: string | null = null; // For future auth integration
+  private activeSessionId: string | null = null;
+  private anonymousUserId: string | null = null;
+
+  constructor() {
+    // Generate or retrieve anonymous user ID for session isolation
+    this.initializeAnonymousUser();
+  }
+
+  private initializeAnonymousUser(): void {
+    const stored = localStorage.getItem('meditation_anonymous_user_id');
+    if (stored) {
+      this.anonymousUserId = stored;
+    } else {
+      this.anonymousUserId = `anon_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      localStorage.setItem('meditation_anonymous_user_id', this.anonymousUserId);
+    }
+  }
+
+  private getEffectiveUserId(): string | null {
+    return this.currentUserId || this.anonymousUserId;
+  }
 
   // Session Management
-  startSession(preset: Preset): string {
-    const sessionId = this.generateSessionId();
-    const session: Partial<MeditationSession> = {
-      id: sessionId,
-      presetId: preset.id,
-      presetName: preset.name,
-      presetType: preset.type,
-      duration: preset.duration,
-      completionPercentage: 0,
-      wasCompleted: false
-    };
-    
-    // Store active session
-    localStorage.setItem('active_session', JSON.stringify(session));
-    console.log('Started session:', sessionId, preset.name);
-    
-    return sessionId;
-  }
+  async startSession(preset: Preset): Promise<string> {
+    try {
+      const sessionData: InsertSession = {
+        userId: this.getEffectiveUserId(),
+        presetName: preset.name,
+        presetType: preset.type,
+        technique: preset.technique || null,
+        duration: preset.duration * 60, // Convert minutes to seconds
+        completedDuration: 0,
+        completionPercentage: 0,
+        isCompleted: false,
+        completedAt: null
+      };
 
-  completeSession(sessionId: string, completionPercentage: number = 100): void {
-    const activeSession = this.getActiveSession();
-    if (!activeSession || activeSession.id !== sessionId) {
-      console.warn('No matching active session found');
-      return;
+      const session = await apiRequest<Session>('/api/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(sessionData)
+      });
+
+      this.activeSessionId = session.id;
+      console.log('Started session:', session.id, preset.name);
+      return session.id;
+    } catch (error) {
+      console.error('Failed to start session:', error);
+      // Fallback to local session ID for offline support
+      const fallbackId = this.generateSessionId();
+      this.activeSessionId = fallbackId;
+      return fallbackId;
     }
-
-    const completedSession: MeditationSession = {
-      ...activeSession,
-      completedAt: new Date(),
-      completionPercentage,
-      wasCompleted: completionPercentage >= 90 // Consider 90%+ as completed
-    } as MeditationSession;
-
-    // Save to history
-    this.saveSessionToHistory(completedSession);
-    
-    // Update last session date for streak tracking
-    localStorage.setItem(this.LAST_SESSION_DATE_KEY, new Date().toISOString());
-    
-    // Clear active session
-    localStorage.removeItem('active_session');
-    
-    console.log('Completed session:', sessionId, `${completionPercentage}%`);
   }
 
-  getActiveSession(): Partial<MeditationSession> | null {
-    const stored = localStorage.getItem('active_session');
-    return stored ? JSON.parse(stored) : null;
+  async completeSession(sessionId: string, completionPercentage: number = 100): Promise<void> {
+    try {
+      if (this.activeSessionId !== sessionId) {
+        console.warn('Session ID mismatch');
+        return;
+      }
+
+      // Calculate completed duration based on percentage
+      const session = await this.getSession(sessionId);
+      const completedDuration = session ? Math.round((session.duration * completionPercentage) / 100) : 0;
+
+      await apiRequest(`/api/sessions/${sessionId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          completedDuration,
+          completionPercentage,
+          isCompleted: completionPercentage >= 90,
+          completedAt: new Date().toISOString()
+        })
+      });
+
+      this.activeSessionId = null;
+      console.log('Completed session:', sessionId, `${completionPercentage}%`);
+    } catch (error) {
+      console.error('Failed to complete session:', error);
+      this.activeSessionId = null;
+    }
+  }
+
+  async getSession(sessionId: string): Promise<Session | null> {
+    try {
+      return await apiRequest<Session>(`/api/sessions/${sessionId}`);
+    } catch (error) {
+      console.error('Failed to fetch session:', error);
+      return null;
+    }
   }
 
   // Session History
-  private saveSessionToHistory(session: MeditationSession): void {
-    const sessions = this.getAllSessions();
-    sessions.unshift(session); // Add to beginning
-    
-    // Keep only last 100 sessions
-    const trimmed = sessions.slice(0, 100);
-    localStorage.setItem(this.SESSIONS_KEY, JSON.stringify(trimmed));
-  }
-
-  getAllSessions(): MeditationSession[] {
-    const stored = localStorage.getItem(this.SESSIONS_KEY);
-    if (!stored) return [];
-    
+  async getAllSessions(): Promise<Session[]> {
     try {
-      const sessions = JSON.parse(stored);
-      // Convert date strings back to Date objects
-      return sessions.map((s: any) => ({
-        ...s,
-        completedAt: new Date(s.completedAt)
-      }));
-    } catch {
+      const effectiveUserId = this.getEffectiveUserId();
+      const params = effectiveUserId ? `?userId=${effectiveUserId}` : '';
+      return await apiRequest<Session[]>(`/api/sessions${params}`);
+    } catch (error) {
+      console.error('Failed to fetch sessions:', error);
       return [];
     }
   }
 
-  getRecentSessions(limit: number = 10): MeditationSession[] {
-    return this.getAllSessions().slice(0, limit);
+  async getRecentSessions(limit: number = 10): Promise<Session[]> {
+    const sessions = await this.getAllSessions();
+    return sessions.slice(0, limit);
   }
 
   // Statistics
-  getSessionStats(): SessionStats {
-    const sessions = this.getAllSessions();
-    const completedSessions = sessions.filter(s => s.wasCompleted);
-    
-    if (completedSessions.length === 0) {
+  async getSessionStats(): Promise<SessionStats> {
+    try {
+      const effectiveUserId = this.getEffectiveUserId();
+      const params = effectiveUserId ? `?userId=${effectiveUserId}` : '';
+      return await apiRequest<SessionStats>(`/api/stats${params}`);
+    } catch (error) {
+      console.error('Failed to fetch session stats:', error);
       return {
         totalSessions: 0,
         totalMinutes: 0,
@@ -124,179 +148,107 @@ class SessionManager {
         lastSession: 'Never'
       };
     }
+  }
 
-    const totalMinutes = completedSessions.reduce((sum, s) => sum + s.duration, 0);
-    const currentStreak = this.calculateCurrentStreak(completedSessions);
-    const longestStreak = this.calculateLongestStreak(completedSessions);
-    const thisWeek = this.getThisWeekSessions(completedSessions);
-    const favoriteType = this.getFavoriteType(completedSessions);
-    const lastSession = this.getLastSessionText(completedSessions[0]);
+  // Settings Management
+  async saveSettings(settings: MeditationSettings): Promise<void> {
+    try {
+      const settingsData: InsertUserSettings = {
+        userId: this.getEffectiveUserId(),
+        ...settings
+      };
 
+      const effectiveUserId = this.getEffectiveUserId();
+      const params = effectiveUserId ? `?userId=${effectiveUserId}` : '';
+      await apiRequest(`/api/settings${params}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(settingsData)
+      });
+
+      console.log('Settings saved');
+    } catch (error) {
+      console.error('Failed to save settings:', error);
+      // Fallback to localStorage for offline support
+      localStorage.setItem('meditation_settings_fallback', JSON.stringify(settings));
+    }
+  }
+
+  async getSettings(): Promise<MeditationSettings> {
+    try {
+      const effectiveUserId = this.getEffectiveUserId();
+      const params = effectiveUserId ? `?userId=${effectiveUserId}` : '';
+      const settings = await apiRequest<UserSettings>(`/api/settings${params}`);
+      
+      if (settings) {
+        return {
+          intervalBells: settings.intervalBells,
+          intervalDuration: settings.intervalDuration,
+          soundEnabled: settings.soundEnabled,
+          bellSound: settings.bellSound,
+          volume: settings.volume,
+          visualCues: settings.visualCues,
+          autoFadeInterface: settings.autoFadeInterface,
+          fadeDuration: settings.fadeDuration
+        };
+      }
+    } catch (error) {
+      console.error('Failed to fetch settings:', error);
+      
+      // Try fallback localStorage
+      const fallback = localStorage.getItem('meditation_settings_fallback');
+      if (fallback) {
+        try {
+          return JSON.parse(fallback);
+        } catch {
+          // Ignore parse errors
+        }
+      }
+    }
+
+    // Return default settings
     return {
-      totalSessions: completedSessions.length,
-      totalMinutes,
-      currentStreak,
-      longestStreak,
-      thisWeek,
-      favoriteType,
-      lastSession
+      intervalBells: false,
+      intervalDuration: 5,
+      soundEnabled: true,
+      bellSound: 'tibetan',
+      volume: 50,
+      visualCues: true,
+      autoFadeInterface: true,
+      fadeDuration: 10
     };
   }
 
-  private calculateCurrentStreak(sessions: MeditationSession[]): number {
-    if (sessions.length === 0) return 0;
-
-    const today = new Date();
-    const dates = this.getUniqueDates(sessions);
-    let streak = 0;
-    
-    for (let i = 0; i < dates.length; i++) {
-      const daysDiff = this.getDaysDifference(dates[i], today);
-      
-      if (daysDiff === streak) {
-        streak++;
-      } else {
-        break;
-      }
-    }
-    
-    return streak;
-  }
-
-  private calculateLongestStreak(sessions: MeditationSession[]): number {
-    if (sessions.length === 0) return 0;
-    
-    const dates = this.getUniqueDates(sessions);
-    let maxStreak = 1;
-    let currentStreak = 1;
-    
-    for (let i = 1; i < dates.length; i++) {
-      const daysDiff = this.getDaysDifference(dates[i], dates[i - 1]);
-      
-      if (daysDiff === 1) {
-        currentStreak++;
-        maxStreak = Math.max(maxStreak, currentStreak);
-      } else {
-        currentStreak = 1;
-      }
-    }
-    
-    return maxStreak;
-  }
-
-  private getThisWeekSessions(sessions: MeditationSession[]): number {
-    const today = new Date();
-    const weekStart = new Date(today);
-    weekStart.setDate(today.getDate() - today.getDay()); // Start of week (Sunday)
-    weekStart.setHours(0, 0, 0, 0);
-    
-    return sessions.filter(s => s.completedAt >= weekStart).length;
-  }
-
-  private getFavoriteType(sessions: MeditationSession[]): string {
-    const typeCounts: Record<string, number> = {};
-    
-    sessions.forEach(s => {
-      typeCounts[s.presetName] = (typeCounts[s.presetName] || 0) + 1;
-    });
-    
-    let maxCount = 0;
-    let favoriteType = 'None';
-    
-    Object.entries(typeCounts).forEach(([type, count]) => {
-      if (count > maxCount) {
-        maxCount = count;
-        favoriteType = type;
-      }
-    });
-    
-    return favoriteType;
-  }
-
-  private getLastSessionText(session?: MeditationSession): string {
-    if (!session) return 'Never';
-    
-    const now = new Date();
-    const diffMs = now.getTime() - session.completedAt.getTime();
-    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-    const diffDays = Math.floor(diffHours / 24);
-    
-    if (diffHours < 1) return 'Less than an hour ago';
-    if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
-    if (diffDays < 7) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
-    
-    return session.completedAt.toLocaleDateString();
-  }
-
-  private getUniqueDates(sessions: MeditationSession[]): Date[] {
-    const dateStrings = new Set<string>();
-    
-    sessions.forEach(s => {
-      const dateStr = s.completedAt.toDateString();
-      dateStrings.add(dateStr);
-    });
-    
-    return Array.from(dateStrings)
-      .map(str => new Date(str))
-      .sort((a, b) => b.getTime() - a.getTime()); // Most recent first
-  }
-
-  private getDaysDifference(date1: Date, date2: Date): number {
-    const diffTime = Math.abs(date2.getTime() - date1.getTime());
-    return Math.floor(diffTime / (1000 * 60 * 60 * 24));
-  }
-
+  // Utility methods
   private generateSessionId(): string {
     return `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }
 
-  // Settings Management
-  saveSettings(settings: MeditationSettings): void {
-    localStorage.setItem(this.SETTINGS_KEY, JSON.stringify(settings));
-    console.log('Settings saved');
+  setUserId(userId: string | null): void {
+    this.currentUserId = userId;
   }
 
-  getSettings(): MeditationSettings {
-    const stored = localStorage.getItem(this.SETTINGS_KEY);
-    if (!stored) {
-      // Return default settings
-      return {
-        intervalBells: false,
-        intervalDuration: 5,
-        soundEnabled: true,
-        bellSound: 'tibetan',
-        volume: 50,
-        visualCues: true,
-        autoFadeInterface: true,
-        fadeDuration: 10
-      };
-    }
-    
+  getCurrentUserId(): string | null {
+    return this.currentUserId;
+  }
+
+  getActiveSessionId(): string | null {
+    return this.activeSessionId;
+  }
+
+  // For development/testing - clear all data
+  async clearAllData(): Promise<void> {
     try {
-      return JSON.parse(stored);
-    } catch {
-      console.warn('Failed to parse stored settings, using defaults');
-      // Return default settings directly instead of recursive call
-      return {
-        intervalBells: false,
-        intervalDuration: 5,
-        soundEnabled: true,
-        bellSound: 'tibetan',
-        volume: 50,
-        visualCues: true,
-        autoFadeInterface: true,
-        fadeDuration: 10
-      };
+      const sessions = await this.getAllSessions();
+      for (const session of sessions) {
+        await apiRequest(`/api/sessions/${session.id}`, { method: 'DELETE' });
+      }
+      localStorage.removeItem('meditation_settings_fallback');
+      this.activeSessionId = null;
+      console.log('All meditation data cleared');
+    } catch (error) {
+      console.error('Failed to clear data:', error);
     }
-  }
-
-  // Utility
-  clearAllData(): void {
-    localStorage.removeItem(this.SESSIONS_KEY);
-    localStorage.removeItem(this.SETTINGS_KEY);
-    localStorage.removeItem(this.LAST_SESSION_DATE_KEY);
-    localStorage.removeItem('active_session');
-    console.log('All meditation data cleared');
   }
 }
 

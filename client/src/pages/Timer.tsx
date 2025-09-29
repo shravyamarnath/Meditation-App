@@ -20,11 +20,11 @@ export default function Timer({ selectedPreset, onBackToPresets }: TimerProps) {
 
   const timer = useTimer({
     duration,
-    onComplete: () => {
+    onComplete: async () => {
       console.log('Session completed!');
       if (sessionId && selectedPreset) {
         const completionPercentage = 100;
-        sessionManager.completeSession(sessionId, completionPercentage);
+        await sessionManager.completeSession(sessionId, completionPercentage);
       }
     },
     onTick: (timeRemaining) => {
@@ -42,9 +42,9 @@ export default function Timer({ selectedPreset, onBackToPresets }: TimerProps) {
     }
   }, [timer.isActive, timer.isPaused]);
 
-  const handleStart = () => {
+  const handleStart = async () => {
     if (selectedPreset && !sessionId) {
-      const newSessionId = sessionManager.startSession(selectedPreset);
+      const newSessionId = await sessionManager.startSession(selectedPreset);
       setSessionId(newSessionId);
     }
     timer.start();
@@ -57,14 +57,14 @@ export default function Timer({ selectedPreset, onBackToPresets }: TimerProps) {
     console.log('Timer paused');
   };
 
-  const handleStop = () => {
+  const handleStop = async () => {
     timer.stop();
     setShowInterface(true);
     
     // Save partial session if there was progress
     if (sessionId && selectedPreset && timer.progress > 0) {
       const completionPercentage = Math.round(timer.progress);
-      sessionManager.completeSession(sessionId, completionPercentage);
+      await sessionManager.completeSession(sessionId, completionPercentage);
     }
     
     setSessionId(null);

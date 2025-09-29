@@ -3,20 +3,30 @@ import SettingsPanel, { type MeditationSettings } from '@/components/SettingsPan
 import { sessionManager } from '@/lib/sessionManager';
 
 export default function Settings() {
-  const [settings, setSettings] = useState<MeditationSettings>(
-    sessionManager.getSettings()
-  );
+  const [settings, setSettings] = useState<MeditationSettings>({
+    intervalBells: false,
+    intervalDuration: 5,
+    soundEnabled: true,
+    bellSound: 'tibetan',
+    volume: 50,
+    visualCues: true,
+    autoFadeInterface: true,
+    fadeDuration: 10
+  });
 
   // Load settings from session manager on mount
   useEffect(() => {
-    const savedSettings = sessionManager.getSettings();
-    setSettings(savedSettings);
-    console.log('Loaded settings from session manager');
+    const loadSettings = async () => {
+      const savedSettings = await sessionManager.getSettings();
+      setSettings(savedSettings);
+      console.log('Loaded settings from session manager');
+    };
+    loadSettings();
   }, []);
 
-  const handleSettingsChange = (newSettings: MeditationSettings) => {
+  const handleSettingsChange = async (newSettings: MeditationSettings) => {
     setSettings(newSettings);
-    sessionManager.saveSettings(newSettings);
+    await sessionManager.saveSettings(newSettings);
     console.log('Settings updated and saved:', newSettings);
   };
 

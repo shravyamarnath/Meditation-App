@@ -15,8 +15,11 @@ export default function Progress() {
 
   useEffect(() => {
     // Load real session stats
-    const sessionStats = sessionManager.getSessionStats();
-    setStats(sessionStats);
+    const loadStats = async () => {
+      const sessionStats = await sessionManager.getSessionStats();
+      setStats(sessionStats);
+    };
+    loadStats();
   }, []);
 
   return (
